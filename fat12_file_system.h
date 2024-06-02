@@ -10,7 +10,7 @@ typedef struct file_attributes
     uint8_t write_permission : 1;
     uint8_t is_directory : 1;
     uint8_t is_protected : 1;
-} file_attributes; 
+} file_attributes; // 4 bits
 
 
 typedef struct directory_entry
@@ -22,7 +22,17 @@ typedef struct directory_entry
 
     uint16_t first_block_number;
     uint32_t file_size;
-} Directory_Entry;
+} Directory_Entry; // 32 bytes
+
+typedef struct directory_entry_table
+{
+    uint32_t table_size;
+    
+    uint32_t table_capacity;
+    Directory_Entry* table;
+} Directory_Entry_Table; // 12 bytes
+
+
 
 
 
