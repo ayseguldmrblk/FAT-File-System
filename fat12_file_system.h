@@ -3,13 +3,13 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #define TOTAL_CLUSTERS 4096
 #define FAT12_SIZE (TOTAL_CLUSTERS * 3 / 2)
 #define DIRECTORY_ENTRIES_PER_CLUSTER (1024 / sizeof(Directory_Entry))
-
-uint8_t fat12_table[FAT12_SIZE];
-Directory_Entry entries[DIRECTORY_ENTRIES_PER_CLUSTER]; // 16 entries per 1 KB cluster
 
 typedef struct file_attributes 
 {
@@ -40,68 +40,34 @@ typedef struct directory_entry
     uint64_t filename; // 64 bits for the filename (8 characters with 8 bits each)
     char extension[3]; // File extension
     file_attributes attributes; // File attributes
-    char reserved[20]; // Extended filename (if it exceeds 8 characters)
+    char reserved[18]; // Extended filename (if it exceeds 8 characters)
     file_time last_modification_time; // Time of last modification
     file_date last_modification_date; // Date of last modification
+    file_time creation_time; // Time of creation
+    file_date creation_date; // Date of creation
     uint16_t first_block_number; // The first block number of the file
     uint32_t file_size; // Size of the file in bytes
     char password[16]; // Password for the file
 } Directory_Entry; // 64 bytes
 
-// Function to set a value in the FAT12 table
-void set_fat12_entry(uint16_t cluster, uint16_t value) 
-{
-    uint32_t index = cluster * 3 / 2;
-    if (cluster % 2 == 0) 
-    {
-        fat12_table[index] = value & 0xFF;
-        fat12_table[index + 1] = (fat12_table[index + 1] & 0xF0) | ((value >> 8) & 0x0F);
-    } 
-    else 
-    {
-        fat12_table[index] = (fat12_table[index] & 0x0F) | ((value << 4) & 0xF0);
-        fat12_table[index + 1] = (value >> 4) & 0xFF;
-    }
-}
+extern uint8_t fat12_table[FAT12_SIZE];
+extern Directory_Entry entries[DIRECTORY_ENTRIES_PER_CLUSTER]; // 16 entries per 1 KB cluster
 
-// Function to get a value from the FAT12 table
-uint16_t get_fat12_entry(uint16_t cluster) 
-{
-    uint32_t index = cluster * 3 / 2;
-    if (cluster % 2 == 0) 
-    {
-        return fat12_table[index] | ((fat12_table[index + 1] & 0x0F) << 8);
-    } 
-    else 
-    {
-        return ((fat12_table[index] & 0xF0) >> 4) | (fat12_table[index + 1] << 4);
-    }
-}
-
-// Function to get the status of a cluster
-const char* get_cluster_status(uint16_t cluster) 
-{
-    uint16_t entry = get_fat12_entry(cluster);
-    if (entry == 0x000) 
-    {
-        return "Free";
-    } 
-    else if (entry >= 0xFF0 && entry <= 0xFF6) 
-    {
-        return "Reserved";
-    } 
-    else if (entry == 0xFF7) 
-    {
-        return "Bad";
-    } 
-    else if (entry >= 0xFF8 && entry <= 0xFFF) 
-    {
-        return "EOF";
-    } 
-    else 
-    {
-        return "Used";
-    }
-}
+void set_file_time(file_time *ft, int hours, int minutes, int seconds);
+void set_file_date(file_date *fd, int year, int month, int day);
+void initialize_directory_entry(Directory_Entry* entry, const char* filename, const char* extension, uint32_t file_size, uint16_t first_block_number, const char* password);
+void set_fat12_entry(uint16_t cluster, uint16_t value);
+uint16_t get_fat12_entry(uint16_t cluster);
+const char* get_cluster_status(uint16_t cluster);
+void create_file_system(const char* file_name, int block_size_kb);
+void dir();
+void mkdir(const char* dir_name);
+void rmdir(const char* dir_name);
+void write_file(const char* file_path, const char* linux_file);
+void read_file(const char* file_path, const char* linux_file);
+void delete_file(const char* file_path);
+void dumpe2fs();
+void chmod_file(const char* file_path, const char* permissions);
+void add_password(const char* file_path, const char* password);
 
 #endif // FAT12_FILE_SYSTEM_H
