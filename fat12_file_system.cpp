@@ -86,14 +86,12 @@ void writeFAT12(ofstream &file, FAT12Entry *fat) {
     size_t fatSize = MAX_BLOCKS * sizeof(FAT12Entry); // Calculate size of the FAT12 table
     file.seekp(sizeof(SuperBlock) + MAX_BLOCKS / 8, ios::beg);
     file.write(reinterpret_cast<char*>(fat), fatSize);
-    cerr << "FAT12 table written. Size: " << fatSize << " bytes" << endl;
 }
 
 void writeFAT12(fstream &file, FAT12Entry *fat) {
     size_t fatSize = MAX_BLOCKS * sizeof(FAT12Entry); // Calculate size of the FAT12 table
     file.seekp(sizeof(SuperBlock) + MAX_BLOCKS / 8, ios::beg);
     file.write(reinterpret_cast<char*>(fat), fatSize);
-    cerr << "FAT12 table written. Size: " << fatSize << " bytes" << endl;
 }
 
 void readFAT12(ifstream &file, FAT12Entry *fat) {
@@ -141,18 +139,6 @@ void addDirectoryEntry(fstream &file, DirectoryEntry &entry, uint32_t block) {
     file.write(reinterpret_cast<char*>(entries.data()), entries.size() * sizeof(DirectoryEntry));
     file.flush(); // Ensure the data is written to the file
     cerr << "Added directory entry for: " << entry.filename << " in block: " << block << endl;
-
-    // Debug: Verify the entries were written correctly
-    vector<DirectoryEntry> debugEntries = readDirectoryEntries(file, block);
-    cerr << "Debug: Directory entries after writing:\n";
-    for (const auto &debugEntry : debugEntries) {
-        if (debugEntry.filename[0] != 0) {
-            string debugEntryName(debugEntry.filename, strnlen(debugEntry.filename, sizeof(debugEntry.filename)));
-            cerr << "Name: " << debugEntryName << endl;
-        } else {
-            cerr << "Empty directory entry" << endl;
-        }
-    }
 }
 
 // Reading directory entries from a specific block
@@ -160,17 +146,6 @@ vector<DirectoryEntry> readDirectoryEntries(fstream &file, uint32_t block) {
     vector<DirectoryEntry> entries(16); // Assuming a block can hold 16 directory entries
     file.seekg(block * 512, ios::beg);
     file.read(reinterpret_cast<char*>(entries.data()), entries.size() * sizeof(DirectoryEntry));
-
-    // Debug: Verify the entries were read correctly
-    cerr << "Debug: Directory entries read from block " << block << ":\n";
-    for (const auto &entry : entries) {
-        if (entry.filename[0] != 0) {
-            string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
-            cerr << "Name: " << entryName << endl;
-        } else {
-            cerr << "Empty directory entry" << endl;
-        }
-    }
 
     return entries;
 }
@@ -229,8 +204,6 @@ bool validateFileSystem(const string &fileSystemFile, const string &newDirName) 
 
 // Updated mkdir function
 int mkdir(const string &fileSystemFile, const string &path) {
-    cout << "Creating directory: " << path << endl;
-    cout << "File system file: " << fileSystemFile << endl;
 
     fstream file(fileSystemFile, ios::binary | ios::in | ios::out);
     if (!file.is_open()) {
@@ -240,19 +213,14 @@ int mkdir(const string &fileSystemFile, const string &path) {
 
     SuperBlock superBlock;
     readSuperBlock(file, superBlock);
-    cout << "SuperBlock read successfully" << endl;
-    cout << "Root directory block: " << superBlock.rootDirectory << endl;
 
     uint8_t free_blocks[MAX_BLOCKS / 8];
     readFreeBlocks(file, free_blocks);
-    cout << "Free blocks read successfully" << endl;
 
     FAT12Entry fat[MAX_BLOCKS];
     readFAT12(file, fat);
-    cout << "FAT12 table read successfully" << endl;
 
     uint32_t currentBlock = superBlock.rootDirectory;
-    cout << "Starting at root directory block: " << currentBlock << endl;
 
     vector<string> dirs;
     size_t start = 0, end;
@@ -274,7 +242,6 @@ int mkdir(const string &fileSystemFile, const string &path) {
     for (size_t i = 0; i < dirs.size(); ++i) {
         bool found = false;
         vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
-        cout << "Reading directory entries from block: " << currentBlock << endl;
         for (auto &entry : entries) {
             string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
             if (entryName == dirs[i]) {
@@ -323,8 +290,7 @@ int mkdir(const string &fileSystemFile, const string &path) {
 
             // Write the new directory entry
             addDirectoryEntry(file, newDir, currentBlock);
-            cout << "Added directory entry for: " << dirs[i] << " in block: " << currentBlock << endl;
-
+        
             // Initialize new directory block with empty entries
             DirectoryEntry emptyEntries[16] = {};
             file.seekp(freeBlock * superBlock.blockSize, ios::beg);
@@ -351,15 +317,11 @@ void dir(const string &fileSystemFile, const string &path) {
 
     SuperBlock superBlock;
     readSuperBlock(file, superBlock);
-    cout << "SuperBlock read successfully" << endl;
-    cout << "Root directory block: " << superBlock.rootDirectory << endl;
 
     FAT12Entry fat[MAX_BLOCKS];
     readFAT12(file, fat);
-    cout << "FAT12 table read successfully" << endl;
 
     uint32_t currentBlock = superBlock.rootDirectory; // Start at the correct root directory block
-    cout << "Starting at root directory block: " << currentBlock << endl;
 
     if (path != "\\") {
         vector<string> dirs;
@@ -381,13 +343,11 @@ void dir(const string &fileSystemFile, const string &path) {
         for (const auto &dir : dirs) {
             bool found = false;
             vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
-            cout << "Looking for directory: " << dir << " in block: " << currentBlock << endl;
             for (const auto &entry : entries) {
                 string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
                 if (entryName == dir && entry.attributes.is_directory) {
                     currentBlock = entry.first_block_number;
                     found = true;
-                    cout << "Found directory: " << dir << " at block: " << currentBlock << endl;
                     break;
                 }
             }
@@ -399,7 +359,6 @@ void dir(const string &fileSystemFile, const string &path) {
     }
 
     vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
-    cout << "Reading directory entries from block: " << currentBlock << endl;
 
     cout << "Permissions  Size       Creation Date       Modification Date    Password  Name\n";
     cout << "--------------------------------------------------------------------------------\n";
@@ -429,7 +388,6 @@ void dir(const string &fileSystemFile, const string &path) {
     }
 
     file.close();
-    cout << "File system file closed: " << fileSystemFile << endl;
 }
 
 // Remove directory function
@@ -443,7 +401,6 @@ int rmdir(const string &fileSystemFile, const string &path) {
     SuperBlock superBlock;
     readSuperBlock(file, superBlock);
     cout << "SuperBlock read successfully" << endl;
-    cout << "Root directory block: " << superBlock.rootDirectory << endl;
 
     uint8_t free_blocks[MAX_BLOCKS / 8];
     readFreeBlocks(file, free_blocks);
@@ -454,6 +411,8 @@ int rmdir(const string &fileSystemFile, const string &path) {
     cout << "FAT12 table read successfully" << endl;
 
     uint32_t currentBlock = superBlock.rootDirectory;
+    cout << "Reading directory entries from block: " << currentBlock << endl;
+    
     vector<string> dirs;
     size_t start = 0, end;
 
@@ -474,10 +433,10 @@ int rmdir(const string &fileSystemFile, const string &path) {
     for (size_t i = 0; i < dirs.size(); ++i) {
         bool found = false;
         vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
-        cout << "Reading directory entries from block: " << currentBlock << endl;
         for (auto &entry : entries) {
             string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
             if (entryName == dirs[i]) {
+                cout << "Found directory: " << entryName << " in block: " << currentBlock << endl;
                 if (i == dirs.size() - 1) {
                     if (!entry.attributes.is_directory) {
                         cerr << "Not a directory: " << dirs[i] << endl;
@@ -498,22 +457,60 @@ int rmdir(const string &fileSystemFile, const string &path) {
                         return -1;
                     }
 
+                    cout << "Before clearing directory entry:" << endl;
+                    for (const auto &e : entries) {
+                        if (e.filename[0] != 0) {
+                            cout << "Name: " << string(e.filename, strnlen(e.filename, sizeof(e.filename))) << endl;
+                        }
+                    }
+
                     // Clear the directory entry
-                    int dirBlock = entry.first_block_number;
-                    memset(&entry, 0, sizeof(DirectoryEntry));
+                    for (auto &e : entries) {
+                        string eName(e.filename, strnlen(e.filename, sizeof(e.filename)));
+                        if (eName == dirs[i]) {
+                            memset(&e, 0, sizeof(DirectoryEntry));
+                            break;
+                        }
+                    }
+
                     file.seekp(currentBlock * superBlock.blockSize, ios::beg);
                     file.write(reinterpret_cast<char*>(entries.data()), entries.size() * sizeof(DirectoryEntry));
-                    file.flush();
+                    file.flush(); // Ensure data is written to the file
                     cout << "Cleared directory entry for: " << dirs[i] << " in block: " << currentBlock << endl;
 
-                    // Mark the block as free
+                    // Mark the directory block as free
+                    int dirBlock = entry.first_block_number;
                     fat[dirBlock] = FAT_FREE;
                     free_blocks[dirBlock / 8] |= (1 << (dirBlock % 8));
                     writeFAT12(file, fat);
                     writeFreeBlocks(file, free_blocks);
                     cout << "Marked block " << dirBlock << " as free" << endl;
 
+                    // Initialize the cleared directory block to empty entries
+                    DirectoryEntry emptyEntries[16] = {};
+                    file.seekp(dirBlock * superBlock.blockSize, ios::beg);
+                    file.write(reinterpret_cast<char*>(emptyEntries), sizeof(emptyEntries));
+                    cout << "Cleared directory block: " << dirBlock << endl;
+
+                    cout << "After clearing directory entry:" << endl;
+                    entries = readDirectoryEntries(file, currentBlock);
+                    bool cleared = true;
+                    for (const auto &e : entries) {
+                        if (e.filename[0] != 0) {
+                            cout << "Name: " << string(e.filename, strnlen(e.filename, sizeof(e.filename))) << endl;
+                            if (string(e.filename, strnlen(e.filename, sizeof(e.filename))) == dirs[i]) {
+                                cleared = false;
+                            }
+                        }
+                    }
+
                     file.close();
+
+                    if (!cleared) {
+                        cerr << "Error: Directory entry not cleared for: " << dirs[i] << endl;
+                        return -1;
+                    }
+
                     cout << "Directory removed successfully." << endl;
                     return 0;
                 } else {
@@ -532,18 +529,75 @@ int rmdir(const string &fileSystemFile, const string &path) {
     return 0;
 }
 
+int dumpe2fs(const string &fileSystemFile) {
+    fstream file(fileSystemFile, ios::binary | ios::in);
+    if (!file.is_open()) {
+        cerr << "Failed to open file system file: " << fileSystemFile << endl;
+        return -1;
+    }
+
+    SuperBlock superBlock;
+    readSuperBlock(file, superBlock);
+    cout << "Superblock information:" << endl;
+    cout << "Total blocks: " << superBlock.totalBlocks << endl;
+    cout << "Free blocks: " << superBlock.freeBlocks << endl;
+    cout << "Block size: " << superBlock.blockSize << " bytes" << endl;
+    cout << "Root directory block: " << superBlock.rootDirectory << endl;
+    cout << "First data block: " << superBlock.firstDataBlock << endl;
+
+    uint8_t free_blocks[MAX_BLOCKS / 8];
+    readFreeBlocks(file, free_blocks);
+    cout << "Free blocks bitmap (hex):" << endl;
+    for (int i = 0; i < MAX_BLOCKS / 8; i++) {
+        if (i % 16 == 0) {
+            cout << endl;
+        }
+        cout << hex << setw(2) << setfill('0') << (int)free_blocks[i];
+    }
+    cout << endl;
+
+    FAT12Entry fat[MAX_BLOCKS];
+    readFAT12(file, fat);
+    cout << "FAT12 table (non-empty blocks):" << endl;
+    for (int i = 0; i < MAX_BLOCKS; i++) {
+        if (fat[i] != FAT_FREE) {
+            cout << "Block " << i << ": " << hex << fat[i] << endl;
+        }
+    }
+
+    cout << "Root directory entries:" << endl;
+    vector<DirectoryEntry> rootEntries = readDirectoryEntries(file, superBlock.rootDirectory);
+    for (const auto &entry : rootEntries) {
+        if (entry.filename[0] != 0) {
+            cout << "Name: " << string(entry.filename, strnlen(entry.filename, sizeof(entry.filename))) << endl;
+            cout << "First block: " << entry.first_block_number << endl;
+            cout << "Is directory: " << (entry.attributes.is_directory ? "Yes" : "No") << endl;
+        }
+    }
+
+    file.close();
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
-    if (argc < 4) {
-        cerr << "Usage: " << argv[0] << " <operation> <block_size> <file_system_file>" << endl;
+    if (argc < 3) {
+        cerr << "Usage: " << argv[0] << " <operation> <file_system_file> [block_size/path]" << endl;
         return 1;
     }
 
     string operation = argv[1];
-    string blockSizeStr = argv[2];
-    string fileSystemFile = argv[3];
+    string fileSystemFile = argv[2];
 
     if (operation == "makeFileSystem") {
+        if (argc != 4) {
+            cerr << "Usage: " << argv[0] << " makeFileSystem <block_size> <file_system_file>" << endl;
+            return 1;
+        }
+
         uint32_t blockSize;
+        string blockSizeStr = argv[2];
+        fileSystemFile = argv[3];
+
         if (blockSizeStr == "1") {
             blockSize = 1024;
         } else if (blockSizeStr == "0.5") {
@@ -559,36 +613,26 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        cerr << "Initializing superblock..." << endl;
         SuperBlock superBlock;
         initializeSuperBlock(superBlock, blockSize);
-        cerr << "Writing superblock to file..." << endl;
         writeSuperBlock(file, superBlock);
 
-        cerr << "Initializing free blocks..." << endl;
         uint8_t free_blocks[MAX_BLOCKS / 8];
         initializeFreeBlocks(free_blocks);
-        cerr << "Writing free blocks to file..." << endl;
         writeFreeBlocks(file, free_blocks);
 
-        cerr << "Initializing FAT12 table..." << endl;
         FAT12Entry fat[MAX_BLOCKS];
         initializeFAT12(fat);
-        cerr << "Writing FAT12 table to file..." << endl;
         writeFAT12(file, fat);
 
-        cerr << "Initializing root directory..." << endl;
         initializeRootDirectory(file, superBlock);
 
-        // Fill the rest of the file with zeros to ensure the file is exactly 4 MB
-        cerr << "Filling the rest of the file to ensure it is 4 MB..." << endl;
         file.seekp(4 * 1024 * 1024 - 1, ios::beg);
         file.write("", 1);
 
         file.close();
         cerr << "File system created successfully." << endl;
     } else if (operation == "dir") {
-        fileSystemFile = argv[2];
         if (argc != 4) {
             cerr << "Usage: " << argv[0] << " dir <file_system_file> <path>" << endl;
             return 1;
@@ -601,31 +645,32 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         string path = argv[3];
-        string fileSystemFile = argv[2];
-        cout << "Creating directory: " << path << endl;
-        if (mkdir(fileSystemFile, path) == 0) {
-            cerr << "Directory created successfully." << endl;
-        } else {
+        if (mkdir(fileSystemFile, path) != 0) {
             cerr << "Failed to create directory." << endl;
         }
     } else if (operation == "rmdir") {
-    if (argc != 4) {
-        cerr << "Usage: " << argv[0] << " rmdir <file_system_file> <path>" << endl;
-        return 1;
-    }
-    string path = argv[3];
-    string fileSystemFile = argv[2];
-    cout << "Removing directory: " << path << endl;
-    if (rmdir(fileSystemFile, path) == 0) {
-        cerr << "Directory removed successfully." << endl;
+        if (argc != 4) {
+            cerr << "Usage: " << argv[0] << " rmdir <file_system_file> <path>" << endl;
+            return 1;
+        }
+        string path = argv[3];
+        if (rmdir(fileSystemFile, path) == 0) {
+            cerr << "Directory removed successfully." << endl;
+        } else {
+            cerr << "Failed to remove directory." << endl;
+        }
+    } else if (operation == "dumpe2fs") {
+        if (argc != 3) {
+            cerr << "Usage: " << argv[0] << " dumpe2fs <file_system_file>" << endl;
+            return 1;
+        }
+        if (dumpe2fs(fileSystemFile) != 0) {
+            cerr << "Failed to dump file system information." << endl;
+        } 
     } else {
-        cerr << "Failed to remove directory." << endl;
-    }
-    } else {
-        cerr << "Unknown operation: " << operation << endl;
+        cerr << "Invalid operation: " << operation << endl;
         return 1;
     }
 
     return 0;
 }
-
