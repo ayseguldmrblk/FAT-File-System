@@ -3,6 +3,8 @@
 #include <cstring>
 #include <cstdint>
 #include <vector>
+#include <iomanip>
+#include <cstdio>
 #include <algorithm>
 #include "fat12_file_system.h"
 
