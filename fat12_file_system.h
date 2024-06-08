@@ -6,10 +6,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <vector>
+#include <string>
 
 #define TOTAL_CLUSTERS 4096
 #define FAT12_SIZE (TOTAL_CLUSTERS * 3 / 2)
 #define DIRECTORY_ENTRIES_PER_CLUSTER (1024 / sizeof(Directory_Entry))
+
+using namespace std;
 
 typedef struct file_attributes 
 {
@@ -53,6 +57,7 @@ typedef struct directory_entry
 extern uint8_t fat12_table[FAT12_SIZE];
 extern Directory_Entry entries[DIRECTORY_ENTRIES_PER_CLUSTER]; // 16 entries per 1 KB cluster
 
+// File system functions
 void set_file_time(file_time *ft, int hours, int minutes, int seconds);
 void set_file_date(file_date *fd, int year, int month, int day);
 void initialize_directory_entry(Directory_Entry* entry, const char* filename, const char* extension, uint32_t file_size, uint16_t first_block_number, const char* password);
@@ -60,7 +65,11 @@ void set_fat12_entry(uint16_t cluster, uint16_t value);
 uint16_t get_fat12_entry(uint16_t cluster);
 const char* get_cluster_status(uint16_t cluster);
 void create_file_system(const char* file_name, int block_size_kb);
-void dir();
+
+// File directory functions
+vector<string> split_path(const std::string& path);
+void print_directory_entries(const std::string& path, Directory_Entry* dir_entries);
+void dir(const char* dir_name);
 void mkdir(const char* dir_name);
 void rmdir(const char* dir_name);
 void write_file(const char* file_path, const char* linux_file);

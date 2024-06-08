@@ -1,14 +1,17 @@
 #include "fat12_file_system.h"
-#include <vector>
-#include <string>
+#include <iostream>
+#include <iomanip>
+#include <ctime>
 
 uint8_t fat12_table[FAT12_SIZE];
 Directory_Entry entries[DIRECTORY_ENTRIES_PER_CLUSTER];
 
+using namespace std;
+
 void set_file_time(file_time *ft, int hours, int minutes, int seconds) {
     ft->hours = hours;
     ft->minutes = minutes;
-    ft->seconds = seconds / 2; // FAT time stores seconds in 2-second increments
+    ft->seconds = seconds / 2;
 }
 
 void set_file_date(file_date *fd, int year, int month, int day) {
@@ -83,8 +86,10 @@ void initialize_free_blocks() {
 }
 
 void write_super_block(FILE* fs, int block_size_kb) {
-    fwrite("FAT12", 5, 1, fs);
-    fwrite(&block_size_kb, sizeof(int), 1, fs);
+    fwrite("FAT12", 5, 1, fs); // File system type
+    uint8_t reserved[3] = {0}; // Reserved bytes to align block size
+    fwrite(reserved, sizeof(reserved), 1, fs);
+    fwrite(&block_size_kb, sizeof(int), 1, fs); // Block size in KB
 }
 
 void write_FAT(FILE* fs) {
@@ -95,43 +100,17 @@ void write_root_directory(FILE* fs) {
     fwrite(entries, sizeof(Directory_Entry), DIRECTORY_ENTRIES_PER_CLUSTER, fs);
 }
 
-// Function to print file time in a human-readable format
 void print_file_time(file_time* ft) {
     printf("%02d:%02d:%02d", ft->hours, ft->minutes, ft->seconds * 2);
 }
 
-// Function to print file date in a human-readable format
 void print_file_date(file_date* fd) {
     printf("%04d-%02d-%02d", fd->year + 1980, fd->month, fd->day);
 }
 
-void dir() {
-    printf("Permissions  Size       Creation Date       Modification Date    Password  Name\n");
-    printf("--------------------------------------------------------------------------------\n");
-    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
-        Directory_Entry entry = entries[i];
-        if (entry.filename != 0 && entry.filename != 0xFFFFFFFFFFFFFFFF) { // Check if the entry is used
-            printf("%c%c           %10d  ", 
-                   entry.attributes.read_permission ? 'r' : '-',
-                   entry.attributes.write_permission ? 'w' : '-',
-                   entry.file_size);
-            print_file_date(&entry.creation_date);
-            printf(" ");
-            print_file_time(&entry.creation_time);
-            printf("    ");
-            print_file_date(&entry.last_modification_date);
-            printf(" ");
-            print_file_time(&entry.last_modification_time);
-            printf("    %s       %s.%s\n", 
-                   entry.attributes.is_protected ? "Yes" : "No",
-                   (char*)&entry.filename, entry.extension);
-        }
-    }
-}
-
-std::vector<std::string> split_path(const std::string& path) {
-    std::vector<std::string> components;
-    std::string component;
+vector<string> split_path(const std::string& path) {
+    vector<string> components;
+    string component;
     for (char ch : path) {
         if (ch == '\\') {
             if (!component.empty()) {
@@ -148,10 +127,74 @@ std::vector<std::string> split_path(const std::string& path) {
     return components;
 }
 
+void print_directory_entries(const std::string& path, Directory_Entry* dir_entries) {
+    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
+        Directory_Entry entry = dir_entries[i];
+        if (entry.filename != 0 && entry.filename != 0xFFFFFFFFFFFFFFFF) {
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            printf("%c%c           %10d  ", 
+                   entry.attributes.read_permission ? 'r' : '-',
+                   entry.attributes.write_permission ? 'w' : '-',
+                   entry.file_size);
+            print_file_date(&entry.creation_date);
+            printf(" ");
+            print_file_time(&entry.creation_time);
+            printf("    ");
+            print_file_date(&entry.last_modification_date);
+            printf(" ");
+            print_file_time(&entry.last_modification_time);
+            printf("    %s       %s.%s\n", 
+                   entry.attributes.is_protected ? "Yes" : "No",
+                   entry_name.c_str(), entry.extension);
+        }
+    }
+}
+
+void dir(const char* path) {
+    printf("Permissions  Size       Creation Date       Modification Date    Password  Name\n");
+    printf("--------------------------------------------------------------------------------\n");
+
+    std::string target_path = path;
+    if (target_path == "\\") {
+        print_directory_entries("", entries);
+        return;
+    }
+
+    if (target_path[0] == '\\') {
+        target_path = target_path.substr(1);
+    }
+
+    Directory_Entry* current_entries = entries;
+    std::vector<std::string> components = split_path(target_path);
+
+    for (const std::string& component : components) {
+        bool found = false;
+        for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
+            Directory_Entry& entry = current_entries[i];
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == component) {
+                if (entry.attributes.is_directory) {
+                    current_entries = reinterpret_cast<Directory_Entry*>(reinterpret_cast<uintptr_t>(entries) + entry.first_block_number * 1024);
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            printf("Error: Directory '%s' not found.\n", path);
+            return;
+        }
+    }
+
+    print_directory_entries(target_path, current_entries);
+}
+
 bool directory_exists(const std::string& dir_name) {
     for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
         if (entries[i].filename != 0 && entries[i].attributes.is_directory &&
-            std::string((char*)&entries[i].filename) == dir_name) {
+            std::string(reinterpret_cast<char*>(&entries[i].filename), 8).substr(0, dir_name.size()) == dir_name) {
             return true;
         }
     }
@@ -160,22 +203,35 @@ bool directory_exists(const std::string& dir_name) {
 
 void mkdir(const char* dir_name) {
     std::vector<std::string> components = split_path(dir_name);
-    std::string path_so_far;
+    Directory_Entry* current_entries = entries;
+    Directory_Entry* parent_entries = nullptr;
+
     for (size_t i = 0; i < components.size() - 1; ++i) {
-        if (!path_so_far.empty()) {
-            path_so_far += "\\";
+        bool found = false;
+        for (size_t j = 0; j < DIRECTORY_ENTRIES_PER_CLUSTER; ++j) {
+            Directory_Entry& entry = current_entries[j];
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == components[i] && entry.attributes.is_directory) {
+                parent_entries = current_entries;
+                current_entries = reinterpret_cast<Directory_Entry*>(reinterpret_cast<uintptr_t>(entries) + entry.first_block_number * 1024);
+                found = true;
+                break;
+            }
         }
-        path_so_far += components[i];
-        if (!directory_exists(path_so_far)) {
-            printf("Error: Parent directory '%s' does not exist.\n", path_so_far.c_str());
+        if (!found) {
+            printf("Error: Parent directory '%s' does not exist.\n", components[i].c_str());
             return;
         }
     }
+
     std::string new_dir_name = components.back();
     for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
-        if (entries[i].filename == 0 || entries[i].filename == 0xFFFFFFFFFFFFFFFF) { // Find an empty entry
-            initialize_directory_entry(&entries[i], new_dir_name.c_str(), "", 0, 0, NULL);
-            entries[i].attributes.is_directory = 1;
+        if (current_entries[i].filename == 0 || current_entries[i].filename == 0xFFFFFFFFFFFFFFFF) {
+            initialize_directory_entry(&current_entries[i], new_dir_name.c_str(), "", 0, 0, NULL);
+            current_entries[i].attributes.is_directory = 1;
+            static uint16_t next_block_number = 3;
+            current_entries[i].first_block_number = next_block_number++;
             printf("Directory '%s' created successfully.\n", dir_name);
             return;
         }
@@ -184,15 +240,58 @@ void mkdir(const char* dir_name) {
 }
 
 void rmdir(const char* dir_name) {
-    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
-        if (entries[i].filename != 0 && strcmp((char*)&entries[i].filename, dir_name) == 0) {
-            if (entries[i].attributes.is_directory) {
-                memset(&entries[i], 0, sizeof(Directory_Entry));
-                printf("Directory '%s' removed successfully.\n", dir_name);
-            } else {
-                printf("Error: '%s' is not a directory.\n", dir_name);
+    std::vector<std::string> components = split_path(dir_name);
+    std::string path_so_far;
+    Directory_Entry* current_entries = entries;
+    Directory_Entry* parent_entries = nullptr;
+
+    for (size_t i = 0; i < components.size() - 1; ++i) {
+        if (!path_so_far.empty()) {
+            path_so_far += "\\";
+        }
+        path_so_far += components[i];
+        bool found = false;
+        for (size_t j = 0; j < DIRECTORY_ENTRIES_PER_CLUSTER; ++j) {
+            Directory_Entry& entry = current_entries[j];
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == components[i] && entry.attributes.is_directory) {
+                parent_entries = current_entries;
+                current_entries = reinterpret_cast<Directory_Entry*>(reinterpret_cast<uintptr_t>(entries) + entry.first_block_number * 1024); // Simulate directory block
+                found = true;
+                break;
             }
+        }
+        if (!found) {
+            printf("Error: Directory '%s' not found.\n", path_so_far.c_str());
             return;
+        }
+    }
+
+    std::string target_dir_name = components.back();
+    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
+        if (current_entries[i].filename != 0 && current_entries[i].attributes.is_directory) {
+            std::string entry_name(reinterpret_cast<char*>(&current_entries[i].filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == target_dir_name) {
+                // Check if the directory is empty
+                bool is_empty = true;
+                for (size_t j = 0; j < DIRECTORY_ENTRIES_PER_CLUSTER; ++j) {
+                    if (current_entries[j].filename != 0 && current_entries[j].filename != 0xFFFFFFFFFFFFFFFF) {
+                        is_empty = false;
+                        break;
+                    }
+                }
+
+                if (is_empty) {
+                    memset(&current_entries[i], 0, sizeof(Directory_Entry));
+                    printf("Directory '%s' removed successfully.\n", dir_name);
+                    return;
+                } else {
+                    printf("Error: Directory '%s' is not empty.\n", dir_name);
+                    return;
+                }
+            }
         }
     }
     printf("Error: Directory '%s' not found.\n", dir_name);
@@ -209,13 +308,16 @@ void create_file_system(const char* file_name, int block_size_kb) {
         exit(EXIT_FAILURE);
     }
 
+    // Initialize free blocks and directory entries
     initialize_free_blocks();
     initialize_directory_entries();
+
+    // Write the superblock with the correct block size
     write_super_block(fs, block_size_kb);
     write_FAT(fs);
     write_root_directory(fs);
 
-    // Fill the rest of the file to the maximum size
+    // Set the file size to the maximum
     int total_blocks = 4096 * block_size_kb;
     fseek(fs, total_blocks * 1024 - 1, SEEK_SET);
     fputc('\0', fs);
@@ -224,12 +326,29 @@ void create_file_system(const char* file_name, int block_size_kb) {
 }
 
 Directory_Entry* find_entry(const char* path) {
-    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
-        if (entries[i].filename != 0 && strcmp((char*)&entries[i].filename, path) == 0) {
-            return &entries[i];
+    std::vector<std::string> components = split_path(path);
+    Directory_Entry* current_entries = entries;
+
+    for (const std::string& component : components) {
+        bool found = false;
+        for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
+            Directory_Entry& entry = current_entries[i];
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == component) {
+                if (entry.attributes.is_directory) {
+                    current_entries = reinterpret_cast<Directory_Entry*>(reinterpret_cast<uintptr_t>(entries) + entry.first_block_number * 1024); // Simulate directory block
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return nullptr;
         }
     }
-    return NULL;
+
+    return current_entries;
 }
 
 void write_file(const char* file_path, const char* linux_file) {
@@ -243,18 +362,37 @@ void write_file(const char* file_path, const char* linux_file) {
     uint32_t file_size = ftell(src);
     fseek(src, 0, SEEK_SET);
 
-    // Find an empty directory entry
-    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
-        if (entries[i].filename == 0 || entries[i].filename == 0xFFFFFFFFFFFFFFFF) {
-            initialize_directory_entry(&entries[i], file_path, "", file_size, 0, NULL);
+    std::vector<std::string> components = split_path(file_path);
+    Directory_Entry* current_entries = entries;
 
-            // Write file data to FAT
-            uint16_t cluster = 2; // Start with cluster 2
+    for (size_t i = 0; i < components.size() - 1; ++i) {
+        bool found = false;
+        for (size_t j = 0; j < DIRECTORY_ENTRIES_PER_CLUSTER; ++j) {
+            Directory_Entry& entry = current_entries[j];
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == components[i] && entry.attributes.is_directory) {
+                current_entries = reinterpret_cast<Directory_Entry*>(reinterpret_cast<uintptr_t>(entries) + entry.first_block_number * 1024); // Simulate directory block
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            printf("Error: Parent directory '%s' does not exist.\n", components[i].c_str());
+            return;
+        }
+    }
+
+    std::string new_file_name = components.back();
+    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
+        if (current_entries[i].filename == 0 || current_entries[i].filename == 0xFFFFFFFFFFFFFFFF) {
+            initialize_directory_entry(&current_entries[i], new_file_name.c_str(), "", file_size, 0, NULL);
+
+            uint16_t cluster = 2;
             while (file_size > 0) {
                 uint8_t buffer[1024];
                 size_t read_size = fread(buffer, 1, sizeof(buffer), src);
                 if (read_size > 0) {
-                    // Write buffer to FAT (skipped actual FAT writing for brevity)
                     file_size -= read_size;
                 }
                 cluster++;
@@ -283,11 +421,9 @@ void read_file(const char* file_path, const char* linux_file) {
     uint32_t file_size = entry->file_size;
     uint16_t cluster = entry->first_block_number;
 
-    // Read file data from FAT
     while (file_size > 0) {
         uint8_t buffer[1024];
         size_t write_size = file_size > sizeof(buffer) ? sizeof(buffer) : file_size;
-        // Read buffer from FAT (skipped actual FAT reading for brevity)
         fwrite(buffer, 1, write_size, dest);
         file_size -= write_size;
         cluster++;
@@ -297,21 +433,57 @@ void read_file(const char* file_path, const char* linux_file) {
 }
 
 void delete_file(const char* file_path) {
-    Directory_Entry* entry = find_entry(file_path);
-    if (!entry) {
-        printf("Error: File '%s' not found.\n", file_path);
-        return;
+    std::vector<std::string> components = split_path(file_path);
+    Directory_Entry* current_entries = entries;
+    Directory_Entry* parent_entries = nullptr;
+
+    for (size_t i = 0; i < components.size() - 1; ++i) {
+        bool found = false;
+        for (size_t j = 0; j < DIRECTORY_ENTRIES_PER_CLUSTER; ++j) {
+            Directory_Entry& entry = current_entries[j];
+            std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+            entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+            if (entry_name == components[i] && entry.attributes.is_directory) {
+                parent_entries = current_entries;
+                current_entries = reinterpret_cast<Directory_Entry*>(reinterpret_cast<uintptr_t>(entries) + entry.first_block_number * 1024); // Simulate directory block
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            printf("Error: Parent directory '%s' does not exist.\n", components[i].c_str());
+            return;
+        }
     }
 
-    memset(entry, 0, sizeof(Directory_Entry));
-    printf("File '%s' deleted successfully.\n", file_path);
+    std::string target_file_name = components.back();
+    for (size_t i = 0; i < DIRECTORY_ENTRIES_PER_CLUSTER; ++i) {
+        Directory_Entry& entry = current_entries[i];
+        std::string entry_name(reinterpret_cast<char*>(&entry.filename), 8);
+        entry_name = entry_name.substr(0, entry_name.find('\0')); // Remove trailing nulls
+        if (entry_name == target_file_name && !entry.attributes.is_directory) {
+            // Clear FAT entries
+            uint16_t cluster = entry.first_block_number;
+            while (cluster < 0xFF8) { // Continue until end of cluster chain
+                uint16_t next_cluster = get_fat12_entry(cluster);
+                set_fat12_entry(cluster, 0x000); // Mark cluster as free
+                cluster = next_cluster;
+            }
+
+            // Clear directory entry
+            memset(&entry, 0, sizeof(Directory_Entry));
+            printf("File '%s' deleted successfully.\n", file_path);
+            return;
+        }
+    }
+    printf("Error: File '%s' not found.\n", file_path);
 }
 
 void dumpe2fs() {
     printf("Filesystem information:\n");
     printf("Total clusters: %d\n", TOTAL_CLUSTERS);
     printf("FAT12 size: %d bytes\n", FAT12_SIZE);
-    printf("Directory entries per cluster: %d\n", DIRECTORY_ENTRIES_PER_CLUSTER);
+    printf("Directory entries per cluster: %lu\n", DIRECTORY_ENTRIES_PER_CLUSTER);
 }
 
 void chmod_file(const char* file_path, const char* permissions) {
@@ -366,7 +538,7 @@ int main(int argc, char* argv[]) {
         printf("File system created successfully.\n");
     } else if (argc >= 4) {
         const char* operation = argv[3];
-        if (strcmp(operation, "dir") == 0 && argc == 4) {
+        if (strcmp(operation, "dir") == 0 && argc == 5) {
             FILE* fs = fopen(file_system_name, "rb");
             if (!fs) {
                 perror("Error opening file system file");
@@ -375,7 +547,7 @@ int main(int argc, char* argv[]) {
             fread(fat12_table, FAT12_SIZE, 1, fs);
             fread(entries, sizeof(Directory_Entry), DIRECTORY_ENTRIES_PER_CLUSTER, fs);
             fclose(fs);
-            dir();
+            dir(argv[4]);
         } else if (strcmp(operation, "mkdir") == 0 && argc == 5) {
             FILE* fs = fopen(file_system_name, "rb+");
             if (!fs) {
