@@ -21,7 +21,6 @@ typedef struct SuperBlock {
     uint32_t firstDataBlock;
 } SuperBlock;
 
-// FAT12 entry (using 2 bytes for simplicity)
 typedef uint16_t FAT12Entry;
 #define FAT_FREE 0x0000
 #define FAT_END  0xFFFF
@@ -81,6 +80,7 @@ void writeFAT12(std::ofstream &file, FAT12Entry *fat);
 void writeFAT12(std::fstream &file, FAT12Entry *fat);
 void readFAT12(std::ifstream &file, FAT12Entry *fat);
 void readFAT12(std::fstream &file, FAT12Entry *fat);
+uint32_t readFAT12Entry(const FAT12Entry *fat, uint32_t currentBlock);
 vector<DirectoryEntry> readDirectoryEntries(fstream &file, uint32_t block);
 int findFreeBlock(uint8_t *free_blocks);
 

@@ -94,6 +94,152 @@ void writeFAT12(fstream &file, FAT12Entry *fat) {
     file.write(reinterpret_cast<char*>(fat), fatSize);
 }
 
+uint32_t readFAT12Entry(const FAT12Entry *fat, uint32_t currentBlock) {
+    return fat[currentBlock];
+}
+
+int chmod(const string &fileSystemFile, const string &path, bool readPermission, bool writePermission) {
+    fstream file(fileSystemFile, ios::binary | ios::in | ios::out);
+    if (!file.is_open()) {
+        cerr << "Failed to open file system file: " << fileSystemFile << endl;
+        return -1;
+    }
+
+    SuperBlock superBlock;
+    readSuperBlock(file, superBlock);
+
+    uint32_t currentBlock = superBlock.rootDirectory;
+
+    vector<string> dirs;
+    size_t start = 0, end;
+
+    if (path[0] == '\\') {
+        start = 1;
+    }
+    while ((end = path.find('\\', start)) != string::npos) {
+        string dir = path.substr(start, end - start);
+        if (!dir.empty()) {
+            dirs.push_back(dir);
+        }
+        start = end + 1;
+    }
+    if (start < path.size()) {
+        dirs.push_back(path.substr(start));
+    }
+
+    for (size_t i = 0; i < dirs.size(); ++i) {
+        bool found = false;
+        vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
+        for (auto &entry : entries) {
+            string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
+            if (!string(entry.extension).empty()) {
+                entryName += "." + string(entry.extension, strnlen(entry.extension, sizeof(entry.extension)));
+            }
+            if (entryName == dirs[i]) {
+                if (i == dirs.size() - 1) {
+                    entry.attributes.read_permission = readPermission;
+                    entry.attributes.write_permission = writePermission;
+
+                    file.seekp(currentBlock * superBlock.blockSize, ios::beg);
+                    file.write(reinterpret_cast<char*>(entries.data()), entries.size() * sizeof(DirectoryEntry));
+                    file.flush();
+
+                    file.close();
+                    cout << "Permissions changed successfully." << endl;
+                    return 0;
+                }
+                if (entry.attributes.is_directory) {
+                    currentBlock = entry.first_block_number;
+                    found = true;
+                    break;
+                } else {
+                    cerr << "Not a directory: " << dirs[i] << endl;
+                    return -1;
+                }
+            }
+        }
+        if (!found) {
+            cerr << "Directory or file not found: " << dirs[i] << endl;
+            return -1;
+        }
+    }
+
+    file.close();
+    cerr << "Failed to change permissions." << endl;
+    return -1;
+}
+
+int addpw(const string &fileSystemFile, const string &path, const string &password) {
+    fstream file(fileSystemFile, ios::binary | ios::in | ios::out);
+    if (!file.is_open()) {
+        cerr << "Failed to open file system file: " << fileSystemFile << endl;
+        return -1;
+    }
+
+    SuperBlock superBlock;
+    readSuperBlock(file, superBlock);
+
+    uint32_t currentBlock = superBlock.rootDirectory;
+
+    vector<string> dirs;
+    size_t start = 0, end;
+
+    if (path[0] == '\\') {
+        start = 1;
+    }
+    while ((end = path.find('\\', start)) != string::npos) {
+        string dir = path.substr(start, end - start);
+        if (!dir.empty()) {
+            dirs.push_back(dir);
+        }
+        start = end + 1;
+    }
+    if (start < path.size()) {
+        dirs.push_back(path.substr(start));
+    }
+
+    for (size_t i = 0; i < dirs.size(); ++i) {
+        bool found = false;
+        vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
+        for (auto &entry : entries) {
+            string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
+            if (!string(entry.extension).empty()) {
+                entryName += "." + string(entry.extension, strnlen(entry.extension, sizeof(entry.extension)));
+            }
+            if (entryName == dirs[i]) {
+                if (i == dirs.size() - 1) {
+                    strncpy(entry.password, password.c_str(), sizeof(entry.password) - 1);
+                    entry.password[sizeof(entry.password) - 1] = '\0'; // Ensure null termination
+
+                    file.seekp(currentBlock * superBlock.blockSize, ios::beg);
+                    file.write(reinterpret_cast<char*>(entries.data()), entries.size() * sizeof(DirectoryEntry));
+                    file.flush();
+
+                    file.close();
+                    cout << "Password added/changed successfully." << endl;
+                    return 0;
+                }
+                if (entry.attributes.is_directory) {
+                    currentBlock = entry.first_block_number;
+                    found = true;
+                    break;
+                } else {
+                    cerr << "Not a directory: " << dirs[i] << endl;
+                    return -1;
+                }
+            }
+        }
+        if (!found) {
+            cerr << "Directory or file not found: " << dirs[i] << endl;
+            return -1;
+        }
+    }
+
+    file.close();
+    cerr << "Failed to add/change password." << endl;
+    return -1;
+}
+
 void readFAT12(ifstream &file, FAT12Entry *fat) {
     size_t fatSize = MAX_BLOCKS * sizeof(FAT12Entry);
     file.seekg(sizeof(SuperBlock) + MAX_BLOCKS / 8, ios::beg);
@@ -579,6 +725,253 @@ int dumpe2fs(const string &fileSystemFile) {
     return 0;
 }
 
+int readFile(const string &fileSystemFile, const string &path) {
+    cout << "Reading file: " << path << endl;
+    cout << "From file system: " << fileSystemFile << endl;
+
+    fstream file(fileSystemFile, ios::binary | ios::in);
+    if (!file.is_open()) {
+        cerr << "Failed to open file system file: " << fileSystemFile << endl;
+        return -1;
+    }
+
+    SuperBlock superBlock;
+    readSuperBlock(file, superBlock);
+
+    uint32_t currentBlock = superBlock.rootDirectory;
+
+    vector<string> dirs;
+    size_t start = 0, end;
+
+    if (path[0] == '\\') {
+        start = 1;
+    }
+    while ((end = path.find('\\', start)) != string::npos) {
+        string dir = path.substr(start, end - start);
+        if (!dir.empty()) {
+            dirs.push_back(dir);
+        }
+        start = end + 1;
+    }
+    if (start < path.size()) {
+        dirs.push_back(path.substr(start));
+    }
+
+    DirectoryEntry fileEntry;
+    bool fileFound = false;
+
+    for (size_t i = 0; i < dirs.size(); ++i) {
+        bool found = false;
+        vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
+        for (const auto &entry : entries) {
+            string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
+            if (entry.extension[0] != ' ') {
+                entryName += "." + string(entry.extension, strnlen(entry.extension, sizeof(entry.extension)));
+            }
+            cout << "Entry: " << entryName << endl;
+            if (entryName == dirs[i]) {
+                if (i == dirs.size() - 1) {
+                    fileEntry = entry;
+                    fileFound = true;
+                    cout << "File found: " << entryName << endl;
+                    found = true;
+                    break;
+                }
+                if (entry.attributes.is_directory) {
+                    currentBlock = entry.first_block_number;
+                    found = true;
+                    break;
+                } else {
+                    cerr << "Not a directory: " << dirs[i] << endl;
+                    return -1;
+                }
+            }
+        }
+        if (!found) {
+            cerr << "Directory or file not found: " << dirs[i] << endl;
+            return -1;
+        }
+    }
+
+    if (!fileFound) {
+        cerr << "File not found: " << dirs.back() << endl;
+        return -1;
+    }
+
+    FAT12Entry fat[MAX_BLOCKS];
+    readFAT12(file, fat);
+
+    uint32_t currentDataBlock = fileEntry.first_block_number;
+    size_t fileSize = fileEntry.file_size;
+    vector<uint8_t> data(fileSize);
+
+    size_t offset = 0;
+    while (offset < fileSize) {
+        cout << "Reading block: " << currentDataBlock << " at offset: " << offset << endl;
+        file.seekg(currentDataBlock * superBlock.blockSize, ios::beg);
+        size_t chunkSize = min(fileSize - offset, (size_t)superBlock.blockSize);
+        file.read(reinterpret_cast<char*>(data.data() + offset), chunkSize);
+        cout << "Read " << chunkSize << " bytes from block " << currentDataBlock << endl;
+        cout << "Bytes read: ";
+        for (size_t i = 0; i < chunkSize; ++i) {
+            cout << hex << static_cast<int>(data[offset + i]) << " ";
+        }
+        cout << endl;
+        offset += chunkSize;
+        currentDataBlock = readFAT12Entry(fat, currentDataBlock);
+        if (currentDataBlock == FAT_END) {
+            break;
+        }
+    }
+
+    file.close();
+    cout << "File content:" << endl;
+    cout.write(reinterpret_cast<const char*>(data.data()), data.size());
+    cout << endl;
+    return 0;
+}
+
+int writeFile(const string &fileSystemFile, const string &path, const vector<uint8_t> &data) {
+    fstream file(fileSystemFile, ios::binary | ios::in | ios::out);
+    if (!file.is_open()) {
+        cerr << "Failed to open file system file: " << fileSystemFile << endl;
+        return -1;
+    }
+
+    SuperBlock superBlock;
+    readSuperBlock(file, superBlock);
+
+    uint8_t free_blocks[MAX_BLOCKS / 8];
+    readFreeBlocks(file, free_blocks);
+
+    FAT12Entry fat[MAX_BLOCKS];
+    readFAT12(file, fat);
+
+    uint32_t currentBlock = superBlock.rootDirectory;
+
+    vector<string> dirs;
+    size_t start = 0, end;
+
+    if (path[0] == '\\') {
+        start = 1;
+    }
+    while ((end = path.find('\\', start)) != string::npos) {
+        string dir = path.substr(start, end - start);
+        if (!dir.empty()) {
+            dirs.push_back(dir);
+        }
+        start = end + 1;
+    }
+    if (start < path.size()) {
+        dirs.push_back(path.substr(start));
+    }
+
+    for (size_t i = 0; i < dirs.size(); ++i) {
+        bool found = false;
+        vector<DirectoryEntry> entries = readDirectoryEntries(file, currentBlock);
+        for (auto &entry : entries) {
+            string entryName(entry.filename, strnlen(entry.filename, sizeof(entry.filename)));
+            if (!string(entry.extension).empty()) {
+                entryName += "." + string(entry.extension, strnlen(entry.extension, sizeof(entry.extension)));
+            }
+            if (entryName == dirs[i]) {
+                if (i == dirs.size() - 1) {
+                    cerr << "File or directory already exists: " << dirs[i] << endl;
+                    return -1;
+                }
+                if (entry.attributes.is_directory) {
+                    currentBlock = entry.first_block_number;
+                    found = true;
+                    break;
+                } else {
+                    cerr << "Not a directory: " << dirs[i] << endl;
+                    return -1;
+                }
+            }
+        }
+        if (!found) {
+            if (i != dirs.size() - 1) {
+                cerr << "Parent directory not found: " << dirs[i] << endl;
+                return -1;
+            }
+
+            int freeBlock = findFreeBlock(fat);
+            if (freeBlock == -1) {
+                cerr << "No free blocks available" << endl;
+                return -1;
+            }
+
+            fat[freeBlock] = FAT_END;
+            free_blocks[freeBlock / 8] &= ~(1 << (freeBlock % 8));
+            writeFAT12(file, fat);
+            writeFreeBlocks(file, free_blocks);
+
+            DirectoryEntry newFile;
+            memset(&newFile, 0, sizeof(DirectoryEntry));
+
+            string filename = dirs[i];
+            string name, extension;
+            size_t dot_pos = filename.find('.');
+            if (dot_pos != string::npos) {
+                name = filename.substr(0, dot_pos);
+                extension = filename.substr(dot_pos + 1);
+            } else {
+                name = filename;
+                extension = "";
+            }
+
+            // Pad filename and extension
+            name.resize(8, ' ');
+            extension.resize(3, ' ');
+
+            strncpy(newFile.filename, name.c_str(), sizeof(newFile.filename));
+            strncpy(newFile.extension, extension.c_str(), sizeof(newFile.extension));
+
+            newFile.attributes.is_directory = 0;
+            newFile.attributes.read_permission = 1;
+            newFile.attributes.write_permission = 1;
+            newFile.creation_date = {1, 1, 40}; // Date: 01/01/1980
+            newFile.last_modification_date = newFile.creation_date;
+            newFile.first_block_number = freeBlock;
+            newFile.file_size = data.size();
+
+            addDirectoryEntry(file, newFile, currentBlock);
+
+            // Write data to blocks
+            uint32_t currentDataBlock = freeBlock;
+            size_t offset = 0;
+            while (offset < data.size()) {
+                int nextFreeBlock = findFreeBlock(fat);
+                if (nextFreeBlock == -1) {
+                    cerr << "No free blocks available for data" << endl;
+                    return -1;
+                }
+
+                fat[currentDataBlock] = nextFreeBlock;
+                currentDataBlock = nextFreeBlock;
+
+                free_blocks[currentDataBlock / 8] &= ~(1 << (currentDataBlock % 8));
+
+                size_t chunkSize = min(data.size() - offset, (size_t)superBlock.blockSize);
+                file.seekp(currentDataBlock * superBlock.blockSize, ios::beg);
+                file.write(reinterpret_cast<const char*>(data.data() + offset), chunkSize);
+                offset += chunkSize;
+            }
+
+            fat[currentDataBlock] = FAT_END;
+            writeFAT12(file, fat);
+            writeFreeBlocks(file, free_blocks);
+
+            file.close();
+            cout << "File written successfully." << endl;
+            return 0;
+        }
+    }
+
+    file.close();
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 3) {
         cerr << "Usage: " << argv[0] << " <operation> <file_system_file> [block_size/path]" << endl;
@@ -667,6 +1060,52 @@ int main(int argc, char *argv[]) {
         if (dumpe2fs(fileSystemFile) != 0) {
             cerr << "Failed to dump file system information." << endl;
         } 
+    } else if (operation == "read") {
+        if (argc != 4) {
+            cerr << "Usage: " << argv[0] << " read <file_system_file> <path>" << endl;
+            return 1;
+        }
+        string path = argv[3];
+        if (readFile(fileSystemFile, path) != 0) {
+            cerr << "Failed to read file." << endl;
+        }
+    } else if (operation == "write") {
+        if (argc != 5) {
+            cerr << "Usage: " << argv[0] << " write <file_system_file> <path> <data>" << endl;
+            return 1;
+        }
+        string path = argv[3];
+        string data_str = argv[4];
+        vector<uint8_t> data(data_str.begin(), data_str.end());
+        if (writeFile(fileSystemFile, path, data) != 0) {
+            cerr << "Failed to write file." << endl;
+        }
+        cout << "File written successfully." << endl;
+    }  else if (operation == "chmod") {
+        if (argc != 6) {
+            cerr << "Usage: " << argv[0] << " chmod <file_system_file> <path> <read_permission> <write_permission>" << endl;
+            return 1;
+        }
+        string path = argv[3];
+        bool readPermission = (argv[4][0] == '1');
+        bool writePermission = (argv[5][0] == '1');
+        if (chmod(fileSystemFile, path, readPermission, writePermission) != 0) {
+            cerr << "Failed to change permissions." << endl;
+            return 1;
+        }
+        cout << "Permissions changed successfully." << endl;
+    } else if (operation == "addpw") {
+        if (argc != 5) {
+            cerr << "Usage: " << argv[0] << " addpw <file_system_file> <path> <password>" << endl;
+            return 1;
+        }
+        string path = argv[3];
+        string password = argv[4];
+        if (addpw(fileSystemFile, path, password) != 0) {
+            cerr << "Failed to add/change password." << endl;
+            return 1;
+        }
+        cout << "Password added/changed successfully." << endl;
     } else {
         cerr << "Invalid operation: " << operation << endl;
         return 1;
